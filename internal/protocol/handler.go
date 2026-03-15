@@ -2,24 +2,20 @@ package protocol
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"strings"
-)
 
-// Storage interface that handler needs
-type Storage interface {
-	Put(key, value string)
-	Get(key string) (string, bool)
-	Delete(key string)
-}
+	"github.com/Xelane/Capstone/internal/storage"
+)
 
 // Handler processes client commands
 type Handler struct {
-	store Storage
+	store storage.Storage
 }
 
 // NewHandler creates a new command handler
-func NewHandler(store Storage) *Handler {
+func NewHandler(store storage.Storage) *Handler {
 	return &Handler{store: store}
 }
 
@@ -31,6 +27,13 @@ func (h *Handler) HandleConnection(conn net.Conn) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		// Clean the line - remove leading/trailing whitespace
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			continue
+		}
+
 		response := h.processCommand(line)
 		conn.Write([]byte(response + "\n"))
 	}
@@ -38,7 +41,7 @@ func (h *Handler) HandleConnection(conn net.Conn) {
 
 // processCommand parses and executes a command
 func (h *Handler) processCommand(line string) string {
-	parts := strings.Fields(line)
+	parts := strings.Fields(line) // Fields automatically handles multiple spaces
 
 	if len(parts) == 0 {
 		return ""
@@ -65,7 +68,10 @@ func (h *Handler) handlePut(parts []string) string {
 
 	key := parts[1]
 	value := strings.Join(parts[2:], " ")
-	h.store.Put(key, value)
+
+	if err := h.store.Put(key, value); err != nil {
+		return fmt.Sprintf("ERROR: %v", err)
+	}
 
 	return "OK"
 }
@@ -90,7 +96,10 @@ func (h *Handler) handleDelete(parts []string) string {
 	}
 
 	key := parts[1]
-	h.store.Delete(key)
+
+	if err := h.store.Delete(key); err != nil {
+		return fmt.Sprintf("ERROR: %v", err)
+	}
 
 	return "OK"
 }

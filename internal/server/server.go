@@ -5,14 +5,8 @@ import (
 	"net"
 
 	"github.com/Xelane/Capstone/internal/protocol"
+	"github.com/Xelane/Capstone/internal/storage"
 )
-
-// Storage interface
-type Storage interface {
-	Put(key, value string)
-	Get(key string) (string, bool)
-	Delete(key string)
-}
 
 // Server handles TCP connections
 type Server struct {
@@ -21,7 +15,7 @@ type Server struct {
 }
 
 // New creates a new server instance
-func New(address string, store Storage) *Server {
+func New(address string, store storage.Storage) *Server {
 	return &Server{
 		address: address,
 		handler: protocol.NewHandler(store),
