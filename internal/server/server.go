@@ -11,14 +11,14 @@ import (
 // Server handles TCP connections
 type Server struct {
 	address string
-	handler *protocol.Handler
+	Handler *protocol.Handler // Make this public so main can access it
 }
 
 // New creates a new server instance
 func New(address string, store storage.Storage) *Server {
 	return &Server{
 		address: address,
-		handler: protocol.NewHandler(store),
+		Handler: protocol.NewHandler(store),
 	}
 }
 
@@ -38,6 +38,6 @@ func (s *Server) Start() error {
 		}
 
 		// Handle each client in a goroutine
-		go s.handler.HandleConnection(conn)
+		go s.Handler.HandleConnection(conn)
 	}
 }
