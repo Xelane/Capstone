@@ -149,3 +149,35 @@ func (p *Peer) SendReplicate(req ReplicateRequest) error {
 	p.lastSeen = time.Now()
 	return nil
 }
+
+// RequestVote asks peer to vote for us
+func (p *Peer) RequestVote(candidateID string, term int64) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.alive || p.conn == nil {
+		return false, fmt.Errorf("peer %s not connected", p.ID)
+	}
+
+	req := VoteRequest{
+		Type:        "vote",
+		Term:        term,
+		CandidateID: candidateID,
+	}
+
+	encoder := json.NewEncoder(p.conn)
+	if err := encoder.Encode(req); err != nil {
+		p.alive = false
+		return false, fmt.Errorf("failed to send vote request: %w", err)
+	}
+
+	decoder := json.NewDecoder(p.conn)
+	var resp VoteResponse
+	if err := decoder.Decode(&resp); err != nil {
+		p.alive = false
+		return false, fmt.Errorf("failed to read vote response: %w", err)
+	}
+
+	p.lastSeen = time.Now()
+	return resp.VoteGranted, nil
+}

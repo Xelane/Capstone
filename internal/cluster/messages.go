@@ -1,11 +1,23 @@
 package cluster
 
-// Message types for inter-node communication
+// VoteRequest asks for a vote
+type VoteRequest struct {
+	Type        string `json:"type"` // "vote"
+	Term        int64  `json:"term"`
+	CandidateID string `json:"candidate_id"`
+}
+
+// VoteResponse grants or denies vote
+type VoteResponse struct {
+	Term        int64 `json:"term"`
+	VoteGranted bool  `json:"vote_granted"`
+}
 
 // PingRequest is a heartbeat message
 type PingRequest struct {
+	Type     string `json:"type"` // "ping"
 	FromNode string `json:"from_node"`
-	Term     int64  `json:"term"` // Will use this later for Raft
+	Term     int64  `json:"term"`
 }
 
 // PingResponse is the reply to a ping
@@ -15,8 +27,9 @@ type PingResponse struct {
 	Success  bool   `json:"success"`
 }
 
-// ReplicateRequest sends data to replicate (we'll implement this in Week 9-10)
+// ReplicateRequest sends data to replicate
 type ReplicateRequest struct {
+	Type     string           `json:"type"` // "replicate"
 	FromNode string           `json:"from_node"`
 	Entries  []ReplicateEntry `json:"entries"`
 }

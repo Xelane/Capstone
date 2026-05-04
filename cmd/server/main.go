@@ -17,7 +17,6 @@ func main() {
 	// Command line flags
 	nodeID := flag.String("id", "node1", "Node ID")
 	configPath := flag.String("config", "config/cluster.yaml", "Cluster config file")
-	leader := flag.Bool("leader", false, "Is this node the leader?")
 	flag.Parse()
 
 	// Load cluster configuration
@@ -43,10 +42,7 @@ func main() {
 	peers := config.GetPeers(*nodeID)
 	clusterNode := cluster.NewNode(*nodeID, nodeConfig.Address, peers)
 
-	// Set leader status
-	clusterNode.SetLeader(*leader)
-
-	// Set replication callback (how followers apply replicated data)
+	// Set replication callback
 	clusterNode.SetReplicateFunc(func(key, value, op string) error {
 		switch op {
 		case "PUT":
@@ -58,7 +54,7 @@ func main() {
 		}
 	})
 
-	// Start cluster node (peer-to-peer communication)
+	// Start cluster node
 	if err := clusterNode.Start(); err != nil {
 		log.Fatal("Failed to start cluster node:", err)
 	}
@@ -67,7 +63,7 @@ func main() {
 	// Create and start client server
 	srv := server.New(":"+nodeConfig.ClientPort, store)
 
-	// Wire up replication to the handler
+	// Wire up replication
 	srv.Handler.SetReplicationFunc(func(key, value, op string) error {
 		return clusterNode.ReplicateToFollowers(key, value, op)
 	})
@@ -79,13 +75,8 @@ func main() {
 
 	fmt.Printf("========================================\n")
 	fmt.Printf("Node ID: %s\n", *nodeID)
-	if *leader {
-		fmt.Printf("Role: LEADER\n")
-	} else {
-		fmt.Printf("Role: FOLLOWER\n")
-	}
-	fmt.Printf("Client port: %s (for PUT/GET/DELETE)\n", nodeConfig.ClientPort)
-	fmt.Printf("Cluster port: %s (for peer communication)\n", nodeConfig.Address)
+	fmt.Printf("Client port: %s\n", nodeConfig.ClientPort)
+	fmt.Printf("Cluster port: %s\n", nodeConfig.Address)
 	fmt.Printf("Data directory: %s\n", nodeConfig.DataDir)
 	fmt.Printf("========================================\n")
 
