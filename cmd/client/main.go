@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -9,20 +10,33 @@ import (
 )
 
 func main() {
+	// Add port flag
+	port := flag.String("port", "8001", "Server port to connect to")
+	host := flag.String("host", "localhost", "Server host")
+	flag.Parse()
+
 	// Connect to server
-	conn, err := net.Dial("tcp", "localhost:8080")
+	address := fmt.Sprintf("%s:%s", *host, *port)
+
+	fmt.Printf("Connecting to %s...\n", address)
+
+	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		fmt.Println("Error connecting:", err)
+		fmt.Printf("❌ Error connecting to %s: %v\n", address, err)
+		fmt.Println("\nMake sure the server is running on that port!")
 		return
 	}
 	defer conn.Close()
 
-	fmt.Println("Connected to server. Type commands (PUT key value, GET key, DELETE key):")
+	fmt.Printf("✅ Connected to %s\n", address)
+	fmt.Println("Commands: PUT key value | GET key | DELETE key")
 	fmt.Println("Type 'quit' to exit")
+
+	// Create reader for responses
+	reader := bufio.NewReader(conn)
 
 	// Read from stdin
 	scanner := bufio.NewScanner(os.Stdin)
-	reader := bufio.NewReader(conn)
 
 	for {
 		fmt.Print("> ")
@@ -31,9 +45,8 @@ func main() {
 		if !scanner.Scan() {
 			break
 		}
-		command := scanner.Text()
 
-		// Clean the command - remove any control characters
+		command := scanner.Text()
 		command = strings.TrimSpace(command)
 
 		if command == "" {
@@ -41,19 +54,26 @@ func main() {
 		}
 
 		if command == "quit" {
+			fmt.Println("Goodbye!")
 			break
 		}
 
 		// Send to server
-		fmt.Fprintf(conn, "%s\n", command)
+		_, err := fmt.Fprintf(conn, "%s\n", command)
+		if err != nil {
+			fmt.Printf("❌ Error sending command: %v\n", err)
+			break
+		}
 
 		// Read response
 		response, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Println("Error reading response:", err)
+			fmt.Printf("❌ Error reading response: %v\n", err)
+			fmt.Println("Server may have disconnected")
 			break
 		}
 
-		fmt.Print("Server: ", response)
+		// Print response
+		fmt.Printf("Server: %s", response)
 	}
 }

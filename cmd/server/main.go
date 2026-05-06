@@ -11,6 +11,7 @@ import (
 	"github.com/Xelane/Capstone/internal/cluster"
 	"github.com/Xelane/Capstone/internal/server"
 	"github.com/Xelane/Capstone/internal/storage"
+	"github.com/Xelane/Capstone/internal/web"
 )
 
 func main() {
@@ -60,6 +61,29 @@ func main() {
 	}
 	defer clusterNode.Stop()
 
+	// Determine dashboard port based on node ID
+	dashboardPort := "7001"
+	switch *nodeID {
+	case "node1":
+		dashboardPort = "7001"
+	case "node2":
+		dashboardPort = "7002"
+	case "node3":
+		dashboardPort = "7003"
+	}
+
+	// Start dashboard
+	dashboard := web.NewDashboard(dashboardPort, func() web.NodeStatus {
+		return web.NodeStatus{
+			NodeID:      *nodeID,
+			State:       clusterNode.GetState(),
+			CurrentTerm: clusterNode.GetTerm(),
+			AlivePeers:  clusterNode.GetAlivePeers(),
+			TotalPeers:  len(peers),
+		}
+	})
+	dashboard.Start()
+
 	// Create and start client server
 	srv := server.New(":"+nodeConfig.ClientPort, store)
 
@@ -75,8 +99,9 @@ func main() {
 
 	fmt.Printf("========================================\n")
 	fmt.Printf("Node ID: %s\n", *nodeID)
-	fmt.Printf("Client port: %s\n", nodeConfig.ClientPort)
-	fmt.Printf("Cluster port: %s\n", nodeConfig.Address)
+	fmt.Printf("Client port: %s (for PUT/GET/DELETE)\n", nodeConfig.ClientPort)
+	fmt.Printf("Cluster port: %s (for Raft)\n", nodeConfig.Address)
+	fmt.Printf("Dashboard: http://localhost:%s\n", dashboardPort)
 	fmt.Printf("Data directory: %s\n", nodeConfig.DataDir)
 	fmt.Printf("========================================\n")
 

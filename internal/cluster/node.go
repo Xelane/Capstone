@@ -453,3 +453,17 @@ func (n *Node) GetAlivePeers() []string {
 	}
 	return alive
 }
+
+// GetState returns current Raft state
+func (n *Node) GetState() string {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.state
+}
+
+// GetTerm returns current term
+func (n *Node) GetTerm() int64 {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.currentTerm
+}

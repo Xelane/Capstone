@@ -1,16 +1,16 @@
 cluster:
   nodes:
     - id: node1
-      address: localhost:9001
+      address: 192.168.1.100:9001
       client_port: 8001
       data_dir: data/node1
     
     - id: node2
-      address: localhost:9002
+      address: 192.168.1.101:9002
       client_port: 8002
       data_dir: data/node2
     
     - id: node3
-      address: localhost:9003
+      address: 192.168.1.102:9003
       client_port: 8003
       data_dir: data/node3
