@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -60,33 +61,18 @@ func (p *Peer) Connect() error {
 
 // SendPing sends a heartbeat to the peer
 func (p *Peer) SendPing(from string, term int64) (*PingResponse, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.alive || p.conn == nil {
-		return nil, fmt.Errorf("peer %s not connected", p.ID)
-	}
-
+	// Use a short-lived connection for this RPC to avoid competing readers on
+	// a shared long-lived socket.
 	req := PingRequest{
 		Type:     "ping",
 		FromNode: from,
 		Term:     term,
 	}
 
-	if err := p.encoder.Encode(req); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] encode ping error: %v\n", p.ID, err)
-		return nil, fmt.Errorf("failed to send ping: %w", err)
-	}
-
 	var resp PingResponse
-	if err := p.decoder.Decode(&resp); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] decode ping response error: %v\n", p.ID, err)
-		return nil, fmt.Errorf("failed to read ping response: %w", err)
+	if err := p.sendOnce(req, &resp); err != nil {
+		return nil, err
 	}
-
-	p.lastSeen = time.Now()
 
 	return &resp, nil
 }
@@ -114,66 +100,56 @@ func (p *Peer) Close() {
 
 // SendReplicate sends replication request to peer
 func (p *Peer) SendReplicate(req ReplicateRequest) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.alive || p.conn == nil {
-		return fmt.Errorf("peer %s not connected", p.ID)
-	}
-
 	req.Type = "replicate"
-
-	if err := p.encoder.Encode(req); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] encode replicate error: %v\n", p.ID, err)
-		return fmt.Errorf("failed to send replicate request: %w", err)
-	}
-
 	var resp ReplicateResponse
-	if err := p.decoder.Decode(&resp); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] decode replicate response error: %v\n", p.ID, err)
-		return fmt.Errorf("failed to read replicate response: %w", err)
+	if err := p.sendOnce(req, &resp); err != nil {
+		return err
 	}
 
 	if !resp.Success {
 		return fmt.Errorf("replication failed: %s", resp.Error)
 	}
 
-	p.lastSeen = time.Now()
-
 	return nil
 }
 
 // RequestVote asks peer to vote for us
 func (p *Peer) RequestVote(candidateID string, term int64) (bool, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.alive || p.conn == nil {
-		return false, fmt.Errorf("peer %s not connected", p.ID)
-	}
-
 	req := VoteRequest{
 		Type:        "vote",
 		Term:        term,
 		CandidateID: candidateID,
 	}
 
-	if err := p.encoder.Encode(req); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] encode vote request error: %v\n", p.ID, err)
-		return false, fmt.Errorf("failed to send vote request: %w", err)
-	}
-
 	var resp VoteResponse
-	if err := p.decoder.Decode(&resp); err != nil {
-		p.alive = false
-		fmt.Printf("[peer %s] decode vote response error: %v\n", p.ID, err)
-		return false, fmt.Errorf("failed to read vote response: %w", err)
+	if err := p.sendOnce(req, &resp); err != nil {
+		return false, err
 	}
-
-	p.lastSeen = time.Now()
 
 	return resp.VoteGranted, nil
+}
+
+// sendOnce dials the peer, sends a single request and decodes a single response.
+func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
+	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
+	if err != nil {
+		fmt.Printf("[peer] failed to dial %s (%s): %v\n", p.ID, p.Address, err)
+		return fmt.Errorf("failed to dial %s: %w", p.ID, err)
+	}
+	defer conn.Close()
+
+	enc := json.NewEncoder(conn)
+	dec := json.NewDecoder(bufio.NewReader(conn))
+
+	if err := enc.Encode(req); err != nil {
+		fmt.Printf("[peer %s] encode error: %v\n", p.ID, err)
+		return fmt.Errorf("encode error: %w", err)
+	}
+
+	if err := dec.Decode(resp); err != nil {
+		fmt.Printf("[peer %s] decode response error: %v\n", p.ID, err)
+		return fmt.Errorf("decode error: %w", err)
+	}
+
+	return nil
 }
