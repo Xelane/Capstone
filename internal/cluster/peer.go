@@ -53,6 +53,8 @@ func (p *Peer) Connect() error {
 	p.alive = true
 	p.lastSeen = time.Now()
 
+	fmt.Printf("[peer %s] connected: local=%s remote=%s\n", p.ID, conn.LocalAddr(), conn.RemoteAddr())
+
 	return nil
 }
 
