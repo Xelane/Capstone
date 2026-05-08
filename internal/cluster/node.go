@@ -70,14 +70,30 @@ func NewNode(id, address string, peerConfigs []NodeConfig) *Node {
 
 // Start begins listening for peer connections
 func (n *Node) Start() error {
-	listener, err := net.Listen("tcp", n.Address)
+	// Try to bind to the configured address. If that fails (for example the
+	// configured host isn't available on this machine), fall back to binding
+	// on all interfaces for the same port so the node can still accept
+	// connections.
+	host, port, err := net.SplitHostPort(n.Address)
 	if err != nil {
-		return fmt.Errorf("failed to start node listener: %w", err)
+		return fmt.Errorf("invalid node address %q: %w", n.Address, err)
 	}
 
-	n.listener = listener
+	listener, err := net.Listen("tcp", n.Address)
+	if err != nil {
+		fallback := ":" + port
+		listener, err = net.Listen("tcp", fallback)
+		if err != nil {
+			return fmt.Errorf("failed to start node listener on %s (fallback %s): %w", n.Address, fallback, err)
+		}
 
-	fmt.Printf("[%s] Cluster node listening on %s\n", n.ID, n.Address)
+		n.listener = listener
+
+		fmt.Printf("[%s] Warning: could not bind to %s (host %s); bound to %s instead\n", n.ID, n.Address, host, fallback)
+	} else {
+		n.listener = listener
+		fmt.Printf("[%s] Cluster node listening on %s\n", n.ID, n.Address)
+	}
 
 	n.resetElectionTimer()
 
