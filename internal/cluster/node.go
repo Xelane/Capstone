@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -258,6 +260,11 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 		var rawMsg json.RawMessage
 
 		if err := decoder.Decode(&rawMsg); err != nil {
+			// Treat EOF and closed-connection errors as normal remote disconnects.
+			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") || strings.Contains(err.Error(), "forcibly closed by the remote host") {
+				return
+			}
+
 			fmt.Printf("[%s] handlePeerConnection decode error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 			return
 		}
