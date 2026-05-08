@@ -43,6 +43,7 @@ func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
 	if err != nil {
 		p.alive = false
+		fmt.Printf("[peer] failed to connect to %s (%s): %v\n", p.ID, p.Address, err)
 		return fmt.Errorf("failed to connect to %s: %w", p.ID, err)
 	}
 
@@ -72,12 +73,14 @@ func (p *Peer) SendPing(from string, term int64) (*PingResponse, error) {
 
 	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] encode ping error: %v\n", p.ID, err)
 		return nil, fmt.Errorf("failed to send ping: %w", err)
 	}
 
 	var resp PingResponse
 	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] decode ping response error: %v\n", p.ID, err)
 		return nil, fmt.Errorf("failed to read ping response: %w", err)
 	}
 
@@ -120,12 +123,14 @@ func (p *Peer) SendReplicate(req ReplicateRequest) error {
 
 	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] encode replicate error: %v\n", p.ID, err)
 		return fmt.Errorf("failed to send replicate request: %w", err)
 	}
 
 	var resp ReplicateResponse
 	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] decode replicate response error: %v\n", p.ID, err)
 		return fmt.Errorf("failed to read replicate response: %w", err)
 	}
 
@@ -155,12 +160,14 @@ func (p *Peer) RequestVote(candidateID string, term int64) (bool, error) {
 
 	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] encode vote request error: %v\n", p.ID, err)
 		return false, fmt.Errorf("failed to send vote request: %w", err)
 	}
 
 	var resp VoteResponse
 	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
+		fmt.Printf("[peer %s] decode vote response error: %v\n", p.ID, err)
 		return false, fmt.Errorf("failed to read vote response: %w", err)
 	}
 
