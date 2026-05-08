@@ -271,6 +271,46 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			return
 		}
 
+		// Try to associate this incoming connection with a known peer so the
+		// Node can reuse the accepted socket for outgoing messages as well.
+		var incomingPeerID string
+		switch msgWithType.Type {
+		case "ping":
+			var req PingRequest
+			if err := json.Unmarshal(rawMsg, &req); err == nil {
+				incomingPeerID = req.FromNode
+			}
+		case "vote":
+			var req VoteRequest
+			if err := json.Unmarshal(rawMsg, &req); err == nil {
+				incomingPeerID = req.CandidateID
+			}
+		case "replicate":
+			var req ReplicateRequest
+			if err := json.Unmarshal(rawMsg, &req); err == nil {
+				incomingPeerID = req.FromNode
+			}
+		}
+
+		if incomingPeerID != "" {
+			n.mu.RLock()
+			peerObj, ok := n.peers[incomingPeerID]
+			n.mu.RUnlock()
+			if ok {
+				peerObj.mu.Lock()
+				// If peer has no active connection or remote differs, bind this conn.
+				if peerObj.conn == nil {
+					peerObj.conn = conn
+					peerObj.encoder = json.NewEncoder(conn)
+					peerObj.decoder = json.NewDecoder(conn)
+					peerObj.alive = true
+					peerObj.lastSeen = time.Now()
+					fmt.Printf("[%s] Associated incoming conn from %s to peer %s\n", n.ID, conn.RemoteAddr(), incomingPeerID)
+				}
+				peerObj.mu.Unlock()
+			}
+		}
+
 		switch msgWithType.Type {
 
 		case "ping":
