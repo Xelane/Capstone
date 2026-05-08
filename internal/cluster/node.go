@@ -265,7 +265,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 				return
 			}
 
-			fmt.Printf("[%s] handlePeerConnection decode error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 			return
 		}
 
@@ -274,7 +273,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 		}
 
 		if err := json.Unmarshal(rawMsg, &msgWithType); err != nil {
-			fmt.Printf("[%s] handlePeerConnection unmarshal type error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 			return
 		}
 
@@ -291,7 +289,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			var req PingRequest
 
 			if err := json.Unmarshal(rawMsg, &req); err != nil {
-				fmt.Printf("[%s] handlePeerConnection unmarshal ping error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 
@@ -325,7 +322,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			}
 
 			if err := encoder.Encode(resp); err != nil {
-				fmt.Printf("[%s] handlePeerConnection encode ping response error to %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 
@@ -333,7 +329,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			var req VoteRequest
 
 			if err := json.Unmarshal(rawMsg, &req); err != nil {
-				fmt.Printf("[%s] handlePeerConnection unmarshal vote error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 
@@ -345,7 +340,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			}
 
 			if err := encoder.Encode(resp); err != nil {
-				fmt.Printf("[%s] handlePeerConnection encode vote response error to %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 
@@ -353,7 +347,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			var req ReplicateRequest
 
 			if err := json.Unmarshal(rawMsg, &req); err != nil {
-				fmt.Printf("[%s] handlePeerConnection unmarshal replicate error from %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 
@@ -378,7 +371,6 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 			}
 
 			if err := encoder.Encode(resp); err != nil {
-				fmt.Printf("[%s] handlePeerConnection encode replicate response error to %s: %v\n", n.ID, conn.RemoteAddr(), err)
 				return
 			}
 		}

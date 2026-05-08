@@ -44,7 +44,6 @@ func (p *Peer) Connect() error {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
 	if err != nil {
 		p.alive = false
-		fmt.Printf("[peer] failed to connect to %s (%s): %v\n", p.ID, p.Address, err)
 		return fmt.Errorf("failed to connect to %s: %w", p.ID, err)
 	}
 
@@ -53,8 +52,6 @@ func (p *Peer) Connect() error {
 	p.decoder = json.NewDecoder(conn)
 	p.alive = true
 	p.lastSeen = time.Now()
-
-	fmt.Printf("[peer %s] connected: local=%s remote=%s\n", p.ID, conn.LocalAddr(), conn.RemoteAddr())
 
 	return nil
 }
@@ -142,12 +139,10 @@ func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
 	dec := json.NewDecoder(bufio.NewReader(conn))
 
 	if err := enc.Encode(req); err != nil {
-		fmt.Printf("[peer %s] encode error: %v\n", p.ID, err)
 		return fmt.Errorf("encode error: %w", err)
 	}
 
 	if err := dec.Decode(resp); err != nil {
-		fmt.Printf("[peer %s] decode response error: %v\n", p.ID, err)
 		return fmt.Errorf("decode error: %w", err)
 	}
 
