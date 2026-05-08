@@ -13,6 +13,8 @@ type Peer struct {
 	ID       string
 	Address  string
 	conn     net.Conn
+	encoder  *json.Encoder
+	decoder  *json.Decoder
 	mu       sync.Mutex
 	alive    bool
 	lastSeen time.Time
@@ -45,6 +47,8 @@ func (p *Peer) Connect() error {
 	}
 
 	p.conn = conn
+	p.encoder = json.NewEncoder(conn)
+	p.decoder = json.NewDecoder(conn)
 	p.alive = true
 	p.lastSeen = time.Now()
 
@@ -60,35 +64,25 @@ func (p *Peer) SendPing(from string, term int64) (*PingResponse, error) {
 		return nil, fmt.Errorf("peer %s not connected", p.ID)
 	}
 
-	// Send message type first
-	msgType := map[string]string{"type": "ping"}
-	encoder := json.NewEncoder(p.conn)
-	if err := encoder.Encode(msgType); err != nil {
-		p.alive = false
-		return nil, fmt.Errorf("failed to send message type: %w", err)
-	}
-
-	// Create request
 	req := PingRequest{
+		Type:     "ping",
 		FromNode: from,
 		Term:     term,
 	}
 
-	// Send request
-	if err := encoder.Encode(req); err != nil {
+	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
 		return nil, fmt.Errorf("failed to send ping: %w", err)
 	}
 
-	// Read response
-	decoder := json.NewDecoder(p.conn)
 	var resp PingResponse
-	if err := decoder.Decode(&resp); err != nil {
+	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
 		return nil, fmt.Errorf("failed to read ping response: %w", err)
 	}
 
 	p.lastSeen = time.Now()
+
 	return &resp, nil
 }
 
@@ -96,6 +90,7 @@ func (p *Peer) SendPing(from string, term int64) (*PingResponse, error) {
 func (p *Peer) IsAlive() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	return p.alive
 }
 
@@ -108,6 +103,7 @@ func (p *Peer) Close() {
 		p.conn.Close()
 		p.conn = nil
 	}
+
 	p.alive = false
 }
 
@@ -120,24 +116,15 @@ func (p *Peer) SendReplicate(req ReplicateRequest) error {
 		return fmt.Errorf("peer %s not connected", p.ID)
 	}
 
-	// Send message type first
-	msgType := map[string]string{"type": "replicate"}
-	encoder := json.NewEncoder(p.conn)
-	if err := encoder.Encode(msgType); err != nil {
-		p.alive = false
-		return fmt.Errorf("failed to send message type: %w", err)
-	}
+	req.Type = "replicate"
 
-	// Send request
-	if err := encoder.Encode(req); err != nil {
+	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
 		return fmt.Errorf("failed to send replicate request: %w", err)
 	}
 
-	// Read response
-	decoder := json.NewDecoder(p.conn)
 	var resp ReplicateResponse
-	if err := decoder.Decode(&resp); err != nil {
+	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
 		return fmt.Errorf("failed to read replicate response: %w", err)
 	}
@@ -147,6 +134,7 @@ func (p *Peer) SendReplicate(req ReplicateRequest) error {
 	}
 
 	p.lastSeen = time.Now()
+
 	return nil
 }
 
@@ -165,19 +153,18 @@ func (p *Peer) RequestVote(candidateID string, term int64) (bool, error) {
 		CandidateID: candidateID,
 	}
 
-	encoder := json.NewEncoder(p.conn)
-	if err := encoder.Encode(req); err != nil {
+	if err := p.encoder.Encode(req); err != nil {
 		p.alive = false
 		return false, fmt.Errorf("failed to send vote request: %w", err)
 	}
 
-	decoder := json.NewDecoder(p.conn)
 	var resp VoteResponse
-	if err := decoder.Decode(&resp); err != nil {
+	if err := p.decoder.Decode(&resp); err != nil {
 		p.alive = false
 		return false, fmt.Errorf("failed to read vote response: %w", err)
 	}
 
 	p.lastSeen = time.Now()
+
 	return resp.VoteGranted, nil
 }

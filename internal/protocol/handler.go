@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/Xelane/Capstone/internal/storage"
 )
@@ -12,19 +13,24 @@ import (
 // ReplicationFunc is called to replicate data to followers
 type ReplicationFunc func(key, value, op string) error
 
+// GetLeaderAddressFunc returns the address of the current leader
+type GetLeaderAddressFunc func() string
+
 // Handler processes client commands
 type Handler struct {
-	store         storage.Storage
-	replicateFunc ReplicationFunc
-	isLeaderFunc  func() bool
+	store                storage.Storage
+	replicateFunc        ReplicationFunc
+	isLeaderFunc         func() bool
+	getLeaderAddressFunc GetLeaderAddressFunc
 }
 
 // NewHandler creates a new command handler
 func NewHandler(store storage.Storage) *Handler {
 	return &Handler{
-		store:         store,
-		replicateFunc: nil,
-		isLeaderFunc:  func() bool { return true }, // Default: always leader
+		store:                store,
+		replicateFunc:        nil,
+		isLeaderFunc:         func() bool { return true }, // Default: always leader
+		getLeaderAddressFunc: func() string { return "" }, // Default: no leader
 	}
 }
 
@@ -36,6 +42,11 @@ func (h *Handler) SetReplicationFunc(f ReplicationFunc) {
 // SetIsLeaderFunc sets the function to check if this node is leader
 func (h *Handler) SetIsLeaderFunc(f func() bool) {
 	h.isLeaderFunc = f
+}
+
+// SetLeaderAddressFunc sets the function to get the leader's address
+func (h *Handler) SetLeaderAddressFunc(f GetLeaderAddressFunc) {
+	h.getLeaderAddressFunc = f
 }
 
 // HandleConnection processes a client connection
@@ -52,13 +63,13 @@ func (h *Handler) HandleConnection(conn net.Conn) {
 			continue
 		}
 
-		response := h.processCommand(line)
+		response := h.ProcessCommand(line)
 		conn.Write([]byte(response + "\n"))
 	}
 }
 
-// processCommand parses and executes a command
-func (h *Handler) processCommand(line string) string {
+// ProcessCommand parses and executes a command
+func (h *Handler) ProcessCommand(line string) string {
 	parts := strings.Fields(line)
 
 	if len(parts) == 0 {
@@ -84,13 +95,17 @@ func (h *Handler) handlePut(parts []string) string {
 		return "ERROR: PUT requires key and value"
 	}
 
-	// Check if leader (for writes)
-	if !h.isLeaderFunc() {
-		return "ERROR: Not leader, cannot accept writes"
-	}
-
 	key := parts[1]
 	value := strings.Join(parts[2:], " ")
+
+	// Check if leader (for writes)
+	if !h.isLeaderFunc() {
+		// Forward to leader if we know it
+		if leaderAddr := h.getLeaderAddressFunc(); leaderAddr != "" {
+			return h.forwardToLeader(leaderAddr, strings.Join(parts, " "))
+		}
+		return "ERROR: Not leader, cannot accept writes"
+	}
 
 	// Apply locally
 	if err := h.store.Put(key, value); err != nil {
@@ -129,6 +144,10 @@ func (h *Handler) handleDelete(parts []string) string {
 
 	// Check if leader (for writes)
 	if !h.isLeaderFunc() {
+		// Forward to leader if we know it
+		if leaderAddr := h.getLeaderAddressFunc(); leaderAddr != "" {
+			return h.forwardToLeader(leaderAddr, strings.Join(parts, " "))
+		}
 		return "ERROR: Not leader, cannot accept writes"
 	}
 
@@ -147,4 +166,26 @@ func (h *Handler) handleDelete(parts []string) string {
 	}
 
 	return "OK"
+}
+
+// forwardToLeader proxies a client command to the leader
+func (h *Handler) forwardToLeader(leaderAddr, command string) string {
+	conn, err := net.DialTimeout("tcp", leaderAddr, 2*time.Second)
+	if err != nil {
+		return fmt.Sprintf("ERROR: Cannot reach leader at %s: %v", leaderAddr, err)
+	}
+	defer conn.Close()
+
+	// Send command to leader
+	if _, err := conn.Write([]byte(command + "\n")); err != nil {
+		return fmt.Sprintf("ERROR: Failed to send to leader: %v", err)
+	}
+
+	// Read response from leader
+	scanner := bufio.NewScanner(conn)
+	if scanner.Scan() {
+		return scanner.Text()
+	}
+
+	return "ERROR: No response from leader"
 }

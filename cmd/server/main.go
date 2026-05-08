@@ -72,18 +72,6 @@ func main() {
 		dashboardPort = "7003"
 	}
 
-	// Start dashboard
-	dashboard := web.NewDashboard(dashboardPort, func() web.NodeStatus {
-		return web.NodeStatus{
-			NodeID:      *nodeID,
-			State:       clusterNode.GetState(),
-			CurrentTerm: clusterNode.GetTerm(),
-			AlivePeers:  clusterNode.GetAlivePeers(),
-			TotalPeers:  len(peers),
-		}
-	})
-	dashboard.Start()
-
 	// Create and start client server
 	srv := server.New(":"+nodeConfig.ClientPort, store)
 
@@ -96,6 +84,25 @@ func main() {
 	srv.Handler.SetIsLeaderFunc(func() bool {
 		return clusterNode.IsLeader()
 	})
+
+	// Wire up leader address for request forwarding
+	srv.Handler.SetLeaderAddressFunc(func() string {
+		return clusterNode.GetLeaderClientAddress()
+	})
+
+	// Start dashboard with command handler integration
+	dashboard := web.NewDashboard(dashboardPort, func() web.NodeStatus {
+		return web.NodeStatus{
+			NodeID:      *nodeID,
+			State:       clusterNode.GetState(),
+			CurrentTerm: clusterNode.GetTerm(),
+			AlivePeers:  clusterNode.GetAlivePeers(),
+			TotalPeers:  len(peers),
+		}
+	}, func(command string) string {
+		return srv.Handler.ProcessCommand(command)
+	})
+	dashboard.Start()
 
 	fmt.Printf("========================================\n")
 	fmt.Printf("Node ID: %s\n", *nodeID)
