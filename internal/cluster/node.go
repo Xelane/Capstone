@@ -523,6 +523,29 @@ func (n *Node) connectToPeers() {
 			for _, peer := range disconnectedPeers {
 				if err := peer.Connect(); err == nil {
 					fmt.Printf("[%s] Connected to %s\n", n.ID, peer.ID)
+
+					// After connecting, if we're the leader, proactively send the full
+					// raft log so this peer can catch up.
+					n.mu.RLock()
+					amLeader := n.state == Leader
+					n.mu.RUnlock()
+
+					if amLeader {
+						// ensure raft log
+						if err := n.ensureRaftLog(); err == nil {
+							entries, _ := n.raftLog.EntriesFrom(1)
+							req := AppendEntriesRequest{
+								Type:         "append_entries",
+								Term:         n.currentTerm,
+								LeaderID:     n.ID,
+								PrevLogIndex: 0,
+								PrevLogTerm:  0,
+								Entries:      entries,
+								LeaderCommit: n.raftLog.LastIndex(),
+							}
+							peer.SendAppendEntries(req) // best-effort
+						}
+					}
 				}
 			}
 		}
