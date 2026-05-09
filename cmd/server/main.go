@@ -75,8 +75,23 @@ func main() {
 	// Create and start client server
 	srv := server.New(":"+nodeConfig.ClientPort, store)
 
-	// Wire up replication
+	// Wire up replication: apply locally first, then replicate to followers
 	srv.Handler.SetReplicationFunc(func(key, value, op string) error {
+		// 1. Apply to local store
+		switch op {
+		case "PUT":
+			if err := store.Put(key, value); err != nil {
+				return err
+			}
+		case "DELETE":
+			if err := store.Delete(key); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unknown operation: %s", op)
+		}
+
+		// 2. Replicate to followers
 		return clusterNode.ReplicateToFollowers(key, value, op)
 	})
 

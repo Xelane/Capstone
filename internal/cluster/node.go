@@ -339,11 +339,13 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 							key := parts[1]
 							value := strings.Join(parts[2:], " ")
 							_ = n.replicateFunc(key, value, "PUT")
+
 						}
 					case "DELETE":
 						if len(parts) >= 2 {
 							key := parts[1]
 							_ = n.replicateFunc(key, "", "DELETE")
+
 						}
 					default:
 						// unknown command — skip

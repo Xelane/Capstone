@@ -139,6 +139,10 @@ func (p *Peer) SendAppendEntries(req AppendEntriesRequest) (AppendEntriesRespons
 func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
 	if err != nil {
+		// Mark as not alive if dial fails
+		p.mu.Lock()
+		p.alive = false
+		p.mu.Unlock()
 		return fmt.Errorf("failed to dial %s: %w", p.ID, err)
 	}
 	defer conn.Close()
@@ -147,10 +151,18 @@ func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
 	dec := json.NewDecoder(bufio.NewReader(conn))
 
 	if err := enc.Encode(req); err != nil {
+		// Mark as not alive if send fails
+		p.mu.Lock()
+		p.alive = false
+		p.mu.Unlock()
 		return fmt.Errorf("encode error: %w", err)
 	}
 
 	if err := dec.Decode(resp); err != nil {
+		// Mark as not alive if receive fails
+		p.mu.Lock()
+		p.alive = false
+		p.mu.Unlock()
 		return fmt.Errorf("decode error: %w", err)
 	}
 
