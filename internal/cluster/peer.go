@@ -126,6 +126,15 @@ func (p *Peer) RequestVote(candidateID string, term int64) (bool, error) {
 	return resp.VoteGranted, nil
 }
 
+// SendAppendEntries sends an AppendEntries RPC to the peer
+func (p *Peer) SendAppendEntries(req AppendEntriesRequest) (AppendEntriesResponse, error) {
+	var resp AppendEntriesResponse
+	if err := p.sendOnce(req, &resp); err != nil {
+		return AppendEntriesResponse{}, err
+	}
+	return resp, nil
+}
+
 // sendOnce dials the peer, sends a single request and decodes a single response.
 func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)

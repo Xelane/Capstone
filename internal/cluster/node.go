@@ -7,6 +7,8 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +30,7 @@ type Node struct {
 	mu       sync.RWMutex
 	listener net.Listener
 	stopCh   chan struct{}
+	raftLog  *RaftLog
 
 	// Raft state
 	state          string
@@ -56,6 +59,7 @@ func NewNode(id, address string, peerConfigs []NodeConfig) *Node {
 		leaderID:      "",
 		peerAddresses: make(map[string]string),
 		peerPorts:     make(map[string]string),
+		raftLog:       nil,
 	}
 
 	// Create peer connections and map addresses
@@ -101,6 +105,11 @@ func (n *Node) Start() error {
 
 	go n.acceptConnections()
 	go n.connectToPeers()
+
+	// ensure raft log file exists (lazy open otherwise)
+	if err := n.ensureRaftLog(); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -284,6 +293,68 @@ func (n *Node) handlePeerConnection(conn net.Conn) {
 		// receive requests and send responses on that socket.
 
 		switch msgWithType.Type {
+
+		case "append_entries":
+			var req AppendEntriesRequest
+
+			if err := json.Unmarshal(rawMsg, &req); err != nil {
+				return
+			}
+
+			// Ensure raft log exists
+			if err := n.ensureRaftLog(); err != nil {
+				return
+			}
+
+			// Simple append logic: append entries whose index is greater than last index.
+			last := n.raftLog.LastIndex()
+			var appended []LogEntry
+
+			for _, e := range req.Entries {
+				if e.Index > last {
+					// append using stored term and command
+					if _, err := n.raftLog.Append(e.Term, e.Command); err != nil {
+						resp := AppendEntriesResponse{Term: n.currentTerm, Success: false, MatchIndex: last}
+						encoder.Encode(resp)
+						return
+					}
+					last = n.raftLog.LastIndex()
+					appended = append(appended, e)
+				}
+			}
+
+			// Apply appended entries to local store (via replicateFunc) so follower
+			// state reflects the raft log. Command strings use the same format as
+			// WAL ("PUT key value" or "DELETE key").
+			if n.replicateFunc != nil {
+				for _, e := range appended {
+					parts := strings.Fields(e.Command)
+					if len(parts) == 0 {
+						continue
+					}
+					op := strings.ToUpper(parts[0])
+					switch op {
+					case "PUT":
+						if len(parts) >= 3 {
+							key := parts[1]
+							value := strings.Join(parts[2:], " ")
+							_ = n.replicateFunc(key, value, "PUT")
+						}
+					case "DELETE":
+						if len(parts) >= 2 {
+							key := parts[1]
+							_ = n.replicateFunc(key, "", "DELETE")
+						}
+					default:
+						// unknown command — skip
+					}
+				}
+			}
+
+			resp := AppendEntriesResponse{Term: n.currentTerm, Success: true, MatchIndex: last}
+			encoder.Encode(resp)
+
+			continue
 
 		case "ping":
 			var req PingRequest
@@ -479,27 +550,58 @@ func (n *Node) ReplicateToFollowers(key, value, op string) error {
 		return fmt.Errorf("not the leader")
 	}
 
-	// 1. Gather active peers
+	// Ensure raft log is available
+	n.mu.RUnlock()
+	if err := n.ensureRaftLog(); err != nil {
+		return err
+	}
+
+	// Build command string and append to leader's raft log so followers can
+	// catch up later. Command format mirrors WAL: "PUT key value" or
+	// "DELETE key".
+	var cmd string
+	switch op {
+	case "PUT":
+		cmd = fmt.Sprintf("PUT %s %s", key, value)
+	case "DELETE":
+		cmd = fmt.Sprintf("DELETE %s", key)
+	default:
+		cmd = fmt.Sprintf("%s %s %s", op, key, value)
+	}
+
+	if _, err := n.raftLog.Append(n.currentTerm, cmd); err != nil {
+		return fmt.Errorf("failed to append to raft log: %w", err)
+	}
+
+	// Send full log as AppendEntries to all alive peers (simple, correct
+	// approach for small clusters/logs; later replace with nextIndex tracking)
+	n.mu.RLock()
 	var activePeers []*Peer
 	for _, peer := range n.peers {
 		if peer.IsAlive() {
 			activePeers = append(activePeers, peer)
 		}
 	}
-	n.mu.RUnlock() // <--- UNLOCK BEFORE SENDING DATA!
+	n.mu.RUnlock()
 
-	// 2. Prepare request
-	req := ReplicateRequest{
-		FromNode: n.ID,
-		Entries: []ReplicateEntry{
-			{Key: key, Value: value, Op: op},
-		},
+	entries, err := n.raftLog.EntriesFrom(1)
+	if err != nil {
+		return fmt.Errorf("failed to read raft log entries: %w", err)
 	}
 
-	// 3. Send over network safely
+	req := AppendEntriesRequest{
+		Type:         "append_entries",
+		Term:         n.currentTerm,
+		LeaderID:     n.ID,
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		Entries:      entries,
+		LeaderCommit: n.raftLog.LastIndex(),
+	}
+
 	successCount := 0
 	for _, peer := range activePeers {
-		if err := peer.SendReplicate(req); err == nil {
+		if _, err := peer.SendAppendEntries(req); err == nil {
 			successCount++
 		}
 	}
@@ -613,4 +715,26 @@ func (n *Node) GetLeaderClientAddress() string {
 	}
 
 	return host + ":" + clientPort
+}
+
+// ensureRaftLog lazily opens the raft log file for this node under data/<nodeID>/raft.log
+func (n *Node) ensureRaftLog() error {
+	if n.raftLog != nil {
+		return nil
+	}
+
+	// Build path data/<nodeID>/raft.log
+	dir := filepath.Join("data", n.ID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	path := filepath.Join(dir, "raft.log")
+	rl, err := NewRaftLog(path)
+	if err != nil {
+		return err
+	}
+
+	n.raftLog = rl
+	return nil
 }
