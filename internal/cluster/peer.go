@@ -139,7 +139,6 @@ func (p *Peer) SendAppendEntries(req AppendEntriesRequest) (AppendEntriesRespons
 func (p *Peer) sendOnce(req interface{}, resp interface{}) error {
 	conn, err := net.DialTimeout("tcp", p.Address, 2*time.Second)
 	if err != nil {
-		fmt.Printf("[peer] failed to dial %s (%s): %v\n", p.ID, p.Address, err)
 		return fmt.Errorf("failed to dial %s: %w", p.ID, err)
 	}
 	defer conn.Close()

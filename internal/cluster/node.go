@@ -598,12 +598,13 @@ func (n *Node) ReplicateToFollowers(key, value, op string) error {
 
 	// Send full log as AppendEntries to all alive peers (simple, correct
 	// approach for small clusters/logs; later replace with nextIndex tracking)
+	// Send to all known peers (use short-lived RPCs so we don't rely on a
+	// persistent `Connect()` having succeeded). This allows immediate
+	// catch-up even if the connect loop hasn't yet marked the peer alive.
 	n.mu.RLock()
-	var activePeers []*Peer
+	var allPeers []*Peer
 	for _, peer := range n.peers {
-		if peer.IsAlive() {
-			activePeers = append(activePeers, peer)
-		}
+		allPeers = append(allPeers, peer)
 	}
 	n.mu.RUnlock()
 
@@ -623,7 +624,7 @@ func (n *Node) ReplicateToFollowers(key, value, op string) error {
 	}
 
 	successCount := 0
-	for _, peer := range activePeers {
+	for _, peer := range allPeers {
 		if _, err := peer.SendAppendEntries(req); err == nil {
 			successCount++
 		}
